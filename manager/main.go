@@ -24,17 +24,20 @@ const (
 )
 
 const (
-	Waiting ElectionState = iota
+	Void ElectionState = iota
+	Waiting
 	Done
 )
 
 type ReplicaManager struct {
 	auctionService.UnimplementedAuctionServiceServer
 	State            ManagerState
+	ElectionState    ElectionState
 	Port             int
 	LamportTimestamp int
 	Clients          map[int]auctionService.AuctionServiceClient
 	ReplicaManagers  map[int]auctionService.AuctionServiceClient
+	PrimaryManager   int
 	ctx              context.Context
 }
 
@@ -53,10 +56,12 @@ func main() {
 	// Instantiate Manager
 	manager := &ReplicaManager{
 		State:            Backup,
+		ElectionState:    Void,
 		Port:             ownPort,
 		LamportTimestamp: 0,
 		Clients:          make(map[int]auctionService.AuctionServiceClient),
 		ReplicaManagers:  make(map[int]auctionService.AuctionServiceClient),
+		PrimaryManager:   serverPorts[0],
 		ctx:              ctx,
 	}
 
@@ -82,59 +87,9 @@ func main() {
 	}()
 
 	fmt.Printf("Listening on port %v \n", ownPort)
+	fmt.Println()
 	fmt.Printf("Dialing ReplicaManagers: \n")
 
-	discoverReplicaManagers(serverPorts, manager)
-	//go discoverClients(clientPorts, manager)
-
-	// Heartbeats
-	// go func() {
-	// 	for {
-	// 		time.Sleep(time.Millisecond * 2000)
-	// 		manager.SendHeartBeatToAllManagers()
-	// 	}
-	// }()
-
-	go func() {
-		for {
-			time.Sleep(time.Millisecond * 2000)
-			manager.SendHeartBeatToAllManagers()
-		}
-	}()
-
-	// Enter to crash
-	scanner := bufio.NewScanner(os.Stdin)
-	for scanner.Scan() {
-		os.Exit(0)
-	}
-}
-
-func discoverClients(clientPorts []int, manager *ReplicaManager) {
-	for i := 0; i < len(clientPorts); i++ {
-		clientPort := clientPorts[i]
-
-		if clientPort == manager.Port { 
-			continue
-		}
-
-		// Dial clients with the ports
-		var conn *grpc.ClientConn
-		conn, err := grpc.Dial(fmt.Sprintf(":%v", clientPort), grpc.WithInsecure(), grpc.WithBlock())
-		defer conn.Close()
-
-		if err != nil {
-			log.Fatalf("Failed connecting to %v: %s", clientPort, err)
-		}
-
-		client := auctionService.NewAuctionServiceClient(conn)
-		manager.Clients[clientPort] = client
-		manager.LamportTimestamp += 1
-
-		fmt.Printf("|- Successfully connected to Client:%v \n", clientPort)
-	}
-}
-
-func discoverReplicaManagers(serverPorts []int, manager *ReplicaManager) {
 	for i := 0; i < len(serverPorts); i++ {
 		serverPort := serverPorts[i]
 
@@ -151,58 +106,91 @@ func discoverReplicaManagers(serverPorts []int, manager *ReplicaManager) {
 			log.Fatalf("Failed connecting to %v: %s", serverPort, err)
 		}
 
-		client := auctionService.NewAuctionServiceClient(conn)
-		manager.ReplicaManagers[serverPort] = client
+		backupManager := auctionService.NewAuctionServiceClient(conn)
+		manager.ReplicaManagers[serverPort] = backupManager
 		manager.LamportTimestamp += 1
 
 		fmt.Printf("|- Successfully connected to Manager:%v \n", serverPort)
 	}
+
+	go manager.ListenForHeartBeat()
+
+	// Enter to crash
+	scanner := bufio.NewScanner(os.Stdin)
+	for scanner.Scan() {
+		os.Exit(0)
+	}
 }
 
-func (manager *ReplicaManager) SendHeartBeatToAllManagers() {
-	// Only primary sends heartbeat
-	if !manager.isPrimary() {
-		fmt.Println("!manager.isPrimary() > SendHeartBeatToAllManagers()")
-		return
-	}
+func (manager *ReplicaManager) ListenForHeartBeat() {
+	for {
+		time.Sleep(time.Millisecond * 2000)
+		if manager.isPrimary() {
+			continue
+		}
 
-	fmt.Println("Sending heartbeat...")
-
-	// TODO: Some lamport stuff here
-	req := &auctionService.Ping{
-		Host:    int32(manager.Port),
-		Lamport: int32(manager.LamportTimestamp),
-	}
-
-	for port, backupManager := range manager.ReplicaManagers {
-		_, err := backupManager.HeartBeat(manager.ctx, req)
+		_, err := manager.ReplicaManagers[manager.PrimaryManager].PingClient(manager.ctx, &auctionService.Void{})
 
 		if err != nil {
-			log.Fatalf("|- Failed to send heartbeat to Manager:%v: %s \n", port, err)
+			fmt.Printf("|- Error in pinging PrimaryManager:%v \n", manager.PrimaryManager)
+			// Start Election due to error.
+			break
+		} else {
+			fmt.Printf("|- Successfully recieved heartbeat from PrimaryManager:%v \n", manager.PrimaryManager)
 		}
+		// Wait 2s for answer else election
 	}
-
 }
 
-func (manager *ReplicaManager) HeartBeat(ctx context.Context, in *auctionService.Ping) (*auctionService.Ping, error) {
-	// Slet senere
-	if manager.isPrimary() {
-		fmt.Println("manager.isPrimary in HeartBeat !!!!! ERROR !!!!!")
-		return &auctionService.Ping{}, nil
-	}
-
-	fmt.Printf("|- Received heartbeat from PrimaryManager:%v \n", in.Host)
-
-	// TODO: Some lamport here
-	returnPing := &auctionService.Ping{
+func (manager *ReplicaManager) PingClient(ctx context.Context, in *auctionService.Void) (*auctionService.Ping, error) {
+	return &auctionService.Ping{
 		Host:    int32(manager.Port),
-		Lamport: int32(manager.LamportTimestamp + 1),
+		Lamport: int32(manager.LamportTimestamp),
+	}, nil
+}
+
+func (manager *ReplicaManager) Vote(ctx context.Context, in *auctionService.VoteReq) (*auctionService.VoteRes, error) {
+	voteRes := &auctionService.VoteRes{
+		Answer: false,
 	}
-	return returnPing, nil
+
+	if manager.LamportTimestamp < int(in.Lamport) {
+		voteRes.Answer = true
+		return voteRes, nil
+	}
+
+	if manager.LamportTimestamp > int(in.Lamport) {
+		return voteRes, nil
+	}
+
+	if manager.LamportTimestamp == int(in.Lamport) {
+		if manager.Port < int(in.Host) {
+			voteRes.Answer = true
+			return voteRes, nil
+		}
+	}
+	return voteRes, nil
+}
+
+func (manager *ReplicaManager) StartElection() {
+	for port, _manager := range manager.ReplicaManagers {
+		res, _ := _manager.Vote(manager.ctx, &auctionService.VoteReq{
+			Host:    int32(manager.Port),
+			Lamport: int32(manager.LamportTimestamp),
+		})
+	}
 }
 
 func (manager *ReplicaManager) isPrimary() bool {
 	return (manager.State == Primary)
+}
+
+func (manager *ReplicaManager) setState(State ManagerState) {
+	manager.State = State
+}
+
+func (manager *ReplicaManager) setElectionState(State ElectionState) {
+	manager.ElectionState = State
 }
 
 func max(ownTimestamp int32, theirTimestamp int32) int32 {

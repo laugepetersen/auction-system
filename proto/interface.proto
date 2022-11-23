@@ -30,11 +30,23 @@ The clients interact with the primary manager and send through that all auction 
 */
 
 service AuctionService {
-  rpc HeartBeat (Ping) returns (Ping) {}
+  rpc PingClient (Void) returns (Ping) {}
+  rpc Vote (VoteReq) returns (VoteRes) {}
   rpc Bid (BidMessage) returns (Ack) {}
   rpc AskResult (Ping) returns (Ack) {}
   rpc AskForLeadership (Ping) returns (ElectorAnswer) {}
   rpc GiveLeadership(Ping) returns (Ping) {}
+}
+
+message Void {}
+
+message VoteReq {
+  int32 host = 1;
+  int32 lamport = 2;
+}
+
+message VoteRes {
+  bool answer = 1;
 }
 
 message Ping {

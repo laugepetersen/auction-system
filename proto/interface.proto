@@ -1,0 +1,57 @@
+syntax = "proto3";
+
+option go_package = "grcp/proto";
+
+// protoc --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative proto/interface.proto
+
+package proto;
+
+/*
+Flow
+---------------------------
+Managers
+--------
+The primary manager sends out "heartbeats"/pings the backups every x milliseconds (goroutine and for loop)
+
+When the primary manager dies an election should be called
+The backups knows when the primary is dead because of a "heartbeat"/ping was net received within x milliseconds
+
+For election we use "Ricart & Agrawala"
+To avoid duplicate elections the backup election calls are sorted by lamport and id
+When a new primary manager has beeen made, then a call to all the clients regarding the new primary manager is made
+
+The primary manager updates the backup managers regarding new updates to the auction
+
+The primary manager handles all auction communication with the clients
+
+Clients
+-------
+The clients interact with the primary manager and send through that all auction request (`bid` and `result`)
+*/
+
+service AuctionService {
+  rpc HeartBeat (Ping) returns (Ping) {}
+  rpc Bid (BidMessage) returns (Ack) {}
+  rpc AskResult (Ping) returns (Ack) {}
+  //rpc StartElection (Ping) returns (ElectorAnswer) {}
+  
+}
+
+message Ping {
+  int32 host = 1;
+  int32 lamport = 2;
+}
+
+message BidMessage {
+  int32 amount = 1;
+  int32 host = 2;
+  int32 lamport = 3;
+}
+
+message Ack {
+  bool ack = 1;
+  string message = 2;
+  int32 lamport = 3;
+}
+
+ 

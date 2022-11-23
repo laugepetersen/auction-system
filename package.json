@@ -1,0 +1,11 @@
+{
+  "name": "auction-system",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "protoc --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative proto/interface.proto"
+  },
+  "author": "",
+  "license": "ISC"
+}

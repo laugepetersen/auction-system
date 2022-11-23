@@ -33,8 +33,8 @@ service AuctionService {
   rpc HeartBeat (Ping) returns (Ping) {}
   rpc Bid (BidMessage) returns (Ack) {}
   rpc AskResult (Ping) returns (Ack) {}
-  //rpc StartElection (Ping) returns (ElectorAnswer) {}
-  
+  rpc AskForLeadership (Ping) returns (ElectorAnswer) {}
+  rpc GiveLeadership(Ping) returns (Ping) {}
 }
 
 message Ping {
@@ -54,4 +54,8 @@ message Ack {
   int32 lamport = 3;
 }
 
- 
+ message ElectorAnswer {
+  int32 lamport = 1;
+  int32 port = 2;
+  bool answer = 3;
+ }

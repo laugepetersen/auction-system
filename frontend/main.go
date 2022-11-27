@@ -109,7 +109,7 @@ func (frontend *Frontend) BidViaManager(amount int) {
 	})
 
 	if err != nil {
-		fmt.Printf("Fatal error on client: %v: %v", frontend.Port, err)
+		fmt.Printf("Fatal bid error on client: %v: %v", frontend.Port, err)
 		return
 	}
 
@@ -118,5 +118,17 @@ func (frontend *Frontend) BidViaManager(amount int) {
 	// TODO: Update lamport
 }
 
-func (frotned *Frontend) GetResultFromManager() {
+func (frontend *Frontend) GetResultFromManager() {
+	// TODO: Lamport
+	ack, err := frontend.PrimaryManager.GetResult(frontend.ctx, &auctionService.Ping{
+		Host:    int32(frontend.Port),
+		Lamport: int32(frontend.LamportTimestamp),
+	})
+
+	if err != nil {
+		fmt.Printf("Fatal result error on client: %v: %v", frontend.Port, err)
+		return
+	}
+
+	fmt.Printf("|- Successfully asked for result, received message from primary manager: %v", ack.Message)
 }

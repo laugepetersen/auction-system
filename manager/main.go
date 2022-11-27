@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"math/rand"
 	"net"
 	"os"
 	"strconv"
@@ -31,7 +32,7 @@ const (
 
 type ReplicaManager struct {
 	auctionService.UnimplementedAuctionServiceServer
-	
+
 	State            ManagerState
 	ElectionState    ElectionState
 	Port             int
@@ -40,10 +41,11 @@ type ReplicaManager struct {
 	ReplicaManagers  map[int]auctionService.AuctionServiceClient
 	PrimaryManager   int
 
-	maxBid 			 int
-	latestBidPort 	 int
+	MaxBid        int
+	LatestBidPort int
+	PingCount     int
 
-	ctx              context.Context
+	ctx context.Context
 }
 
 func main() {
@@ -81,6 +83,9 @@ func main() {
 		Clients:          make(map[int]auctionService.AuctionServiceClient),
 		ReplicaManagers:  make(map[int]auctionService.AuctionServiceClient),
 		PrimaryManager:   int(args1),
+		MaxBid:           0,
+		LatestBidPort:    0,
+		PingCount:        0,
 		ctx:              ctx,
 	}
 
@@ -169,10 +174,12 @@ func (manager *ReplicaManager) ListenForHeartBeat() {
 	for {
 		time.Sleep(time.Millisecond * 2000)
 
+		manager.PingCount += 1
+		
 		if manager.isPrimary() {
 			continue
 		}
-
+		
 		// TODO: Lamport
 		pingData := &auctionService.Ping{
 			Host:    int32(manager.Port),
@@ -203,7 +210,7 @@ func (manager *ReplicaManager) Bid(ctx context.Context, in *auctionService.BidMe
 
 	fmt.Printf("|- Successfully received bid request from: %v, with amount: %v \n", in.Host, in.Amount)
 
-	if in.Amount <= int32(manager.maxBid) {
+	if in.Amount <= int32(manager.MaxBid) {
 		// TODO: Lamport
 		return &auctionService.Ack{
 			Ack:     true,
@@ -213,11 +220,11 @@ func (manager *ReplicaManager) Bid(ctx context.Context, in *auctionService.BidMe
 	}
 
 	// Update auction fields
-	manager.maxBid = int(in.Amount)
-	manager.latestBidPort = int(in.Host)
+	manager.MaxBid = int(in.Amount)
+	manager.LatestBidPort = int(in.Host)
 
 	if manager.isPrimary() {
-		
+
 		// Notify the other replica managers a bid was made
 		for port, replicaManager := range manager.ReplicaManagers {
 			reponse, err := replicaManager.Bid(manager.ctx, in)
@@ -239,7 +246,7 @@ func (manager *ReplicaManager) Bid(ctx context.Context, in *auctionService.BidMe
 		// TODO: Lamport
 		return &auctionService.Ack{
 			Ack:     true,
-			Message: fmt.Sprintf("Thank you primary manager, fields are updated, for port: %v, with amount: %v", manager.Port, manager.maxBid),
+			Message: fmt.Sprintf("Thank you primary manager, fields are updated, for port: %v, with amount: %v", manager.Port, manager.MaxBid),
 			Lamport: int32(manager.LamportTimestamp),
 		}, nil
 	}
@@ -247,8 +254,21 @@ func (manager *ReplicaManager) Bid(ctx context.Context, in *auctionService.BidMe
 }
 
 func (manager *ReplicaManager) GetResult(ctx context.Context, in *auctionService.Ping) (*auctionService.Ack, error) {
+	// TODO: Lamport
+	pingPossibilities := []int{50, 100, 69}
+	
+	var message string
+	if manager.PingCount >= pingPossibilities[rand.Intn(len(pingPossibilities))] {
+		message = fmt.Sprintf("The auction is over max bid was: %v, by port winner: %v, congratulations", manager.MaxBid, manager.LatestBidPort)
+	} else {
+		message = fmt.Sprintf("The highest bid is: %v, by port: %v", manager.MaxBid, manager.LatestBidPort)
+	}
 
-	return &auctionService.Ack{}, nil
+	return &auctionService.Ack{
+		Ack:     true,
+		Message: message,
+		Lamport: int32(manager.LamportTimestamp),
+	}, nil
 }
 
 func (manager *ReplicaManager) Vote(ctx context.Context, in *auctionService.VoteReq) (*auctionService.VoteRes, error) {

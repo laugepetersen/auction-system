@@ -22,7 +22,7 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type AuctionServiceClient interface {
-	PingClient(ctx context.Context, in *Void, opts ...grpc.CallOption) (*Ping, error)
+	PingClient(ctx context.Context, in *Ping, opts ...grpc.CallOption) (*Ping, error)
 	Vote(ctx context.Context, in *VoteReq, opts ...grpc.CallOption) (*VoteRes, error)
 	Bid(ctx context.Context, in *BidMessage, opts ...grpc.CallOption) (*Ack, error)
 	AskResult(ctx context.Context, in *Ping, opts ...grpc.CallOption) (*Ack, error)
@@ -38,7 +38,7 @@ func NewAuctionServiceClient(cc grpc.ClientConnInterface) AuctionServiceClient {
 	return &auctionServiceClient{cc}
 }
 
-func (c *auctionServiceClient) PingClient(ctx context.Context, in *Void, opts ...grpc.CallOption) (*Ping, error) {
+func (c *auctionServiceClient) PingClient(ctx context.Context, in *Ping, opts ...grpc.CallOption) (*Ping, error) {
 	out := new(Ping)
 	err := c.cc.Invoke(ctx, "/proto.AuctionService/PingClient", in, out, opts...)
 	if err != nil {
@@ -96,7 +96,7 @@ func (c *auctionServiceClient) GiveLeadership(ctx context.Context, in *Ping, opt
 // All implementations must embed UnimplementedAuctionServiceServer
 // for forward compatibility
 type AuctionServiceServer interface {
-	PingClient(context.Context, *Void) (*Ping, error)
+	PingClient(context.Context, *Ping) (*Ping, error)
 	Vote(context.Context, *VoteReq) (*VoteRes, error)
 	Bid(context.Context, *BidMessage) (*Ack, error)
 	AskResult(context.Context, *Ping) (*Ack, error)
@@ -109,7 +109,7 @@ type AuctionServiceServer interface {
 type UnimplementedAuctionServiceServer struct {
 }
 
-func (UnimplementedAuctionServiceServer) PingClient(context.Context, *Void) (*Ping, error) {
+func (UnimplementedAuctionServiceServer) PingClient(context.Context, *Ping) (*Ping, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method PingClient not implemented")
 }
 func (UnimplementedAuctionServiceServer) Vote(context.Context, *VoteReq) (*VoteRes, error) {
@@ -141,7 +141,7 @@ func RegisterAuctionServiceServer(s grpc.ServiceRegistrar, srv AuctionServiceSer
 }
 
 func _AuctionService_PingClient_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(Void)
+	in := new(Ping)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -153,7 +153,7 @@ func _AuctionService_PingClient_Handler(srv interface{}, ctx context.Context, de
 		FullMethod: "/proto.AuctionService/PingClient",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(AuctionServiceServer).PingClient(ctx, req.(*Void))
+		return srv.(AuctionServiceServer).PingClient(ctx, req.(*Ping))
 	}
 	return interceptor(ctx, in, info, handler)
 }

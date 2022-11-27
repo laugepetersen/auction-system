@@ -42,8 +42,9 @@ type ReplicaManager struct {
 }
 
 func main() {
+
 	// Retrieve network ports from terminal args
-	serverPorts := []int{5100, 5101, 5102}
+	serverPorts := []int{7101, 7106, 7103}
 	// clientPorts := []int{6100, 6101, 6102}
 
 	arg, _ := strconv.ParseInt(os.Args[1], 10, 32)
@@ -90,6 +91,7 @@ func main() {
 	fmt.Println()
 	fmt.Printf("Dialing ReplicaManagers: \n")
 
+	// Dial replica managers
 	for i := 0; i < len(serverPorts); i++ {
 		serverPort := serverPorts[i]
 
@@ -113,6 +115,8 @@ func main() {
 		fmt.Printf("|- Successfully connected to Manager:%v \n", serverPort)
 	}
 
+	// TODO: Dial clients
+
 	go manager.ListenForHeartBeat()
 
 	// Enter to crash
@@ -120,29 +124,37 @@ func main() {
 	for scanner.Scan() {
 		os.Exit(0)
 	}
+
 }
 
 func (manager *ReplicaManager) ListenForHeartBeat() {
 	for {
 		time.Sleep(time.Millisecond * 2000)
+
 		if manager.isPrimary() {
 			continue
 		}
 
-		_, err := manager.ReplicaManagers[manager.PrimaryManager].PingClient(manager.ctx, &auctionService.Void{})
+		// TODO: Lamport
+		pingData := &auctionService.Ping{
+			Host:    int32(manager.Port),
+			Lamport: int32(manager.LamportTimestamp),
+		}
+		response, err := manager.ReplicaManagers[manager.PrimaryManager].PingClient(manager.ctx, pingData)
 
 		if err != nil {
-			fmt.Printf("|- Error in pinging PrimaryManager:%v \n", manager.PrimaryManager)
-			// Start Election due to error.
+			fmt.Printf("|- Error in pinging PrimaryManager: %v \n", manager.PrimaryManager)
+			// TODO: Start Election due to error, likely a crash
 			break
 		} else {
-			fmt.Printf("|- Successfully recieved heartbeat from PrimaryManager:%v \n", manager.PrimaryManager)
+			fmt.Printf("|- RM: %v successfully pinged and recived response from: %v \n", manager.Port, response.Host)
 		}
-		// Wait 2s for answer else election
 	}
 }
 
-func (manager *ReplicaManager) PingClient(ctx context.Context, in *auctionService.Void) (*auctionService.Ping, error) {
+func (manager *ReplicaManager) PingClient(ctx context.Context, in *auctionService.Ping) (*auctionService.Ping, error) {
+	// TODO: Lamport
+	fmt.Printf("|- Primary manager succesfully pinged by: %v \n", in.Host)
 	return &auctionService.Ping{
 		Host:    int32(manager.Port),
 		Lamport: int32(manager.LamportTimestamp),
@@ -173,12 +185,12 @@ func (manager *ReplicaManager) Vote(ctx context.Context, in *auctionService.Vote
 }
 
 func (manager *ReplicaManager) StartElection() {
-	for port, _manager := range manager.ReplicaManagers {
-		res, _ := _manager.Vote(manager.ctx, &auctionService.VoteReq{
-			Host:    int32(manager.Port),
-			Lamport: int32(manager.LamportTimestamp),
-		})
-	}
+	// for port, _manager := range manager.ReplicaManagers {
+	// 	res, _ := _manager.Vote(manager.ctx, &auctionService.VoteReq{
+	// 		Host:    int32(manager.Port),
+	// 		Lamport: int32(manager.LamportTimestamp),
+	// 	})
+	// }
 }
 
 func (manager *ReplicaManager) isPrimary() bool {

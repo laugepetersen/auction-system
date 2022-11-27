@@ -31,6 +31,7 @@ const (
 
 type ReplicaManager struct {
 	auctionService.UnimplementedAuctionServiceServer
+	
 	State            ManagerState
 	ElectionState    ElectionState
 	Port             int
@@ -38,6 +39,10 @@ type ReplicaManager struct {
 	Clients          map[int]auctionService.AuctionServiceClient
 	ReplicaManagers  map[int]auctionService.AuctionServiceClient
 	PrimaryManager   int
+
+	maxBid 			 int
+	latestBidPort 	 int
+
 	ctx              context.Context
 }
 
@@ -55,7 +60,7 @@ func main() {
 	serverPorts[1] = int(args3)
 	serverPorts[2] = int(args4)
 	ownPort := serverPorts[0]
-	
+
 	args5, _ := strconv.ParseInt(os.Args[5], 10, 32) // client1
 	args6, _ := strconv.ParseInt(os.Args[6], 10, 32) // client2
 	args7, _ := strconv.ParseInt(os.Args[7], 10, 32) // client3
@@ -132,20 +137,20 @@ func main() {
 	go func() {
 		for i := 0; i < len(clientPorts); i++ {
 			clientPort := clientPorts[i]
-			
+
 			// Dial clients with the ports
 			var conn *grpc.ClientConn
 			conn, err := grpc.Dial(fmt.Sprintf(":%v", clientPort), grpc.WithInsecure(), grpc.WithBlock())
 			defer conn.Close()
-			
+
 			if err != nil {
 				log.Fatalf("Failed dialing client clientport: %v, err: %s", clientPort, err)
 			}
-			
+
 			client := auctionService.NewAuctionServiceClient(conn)
 			manager.Clients[clientPort] = client
 			manager.LamportTimestamp += 1
-			
+
 			fmt.Printf("|- Successfully connected to Client:%v \n", clientPort)
 		}
 	}()
@@ -192,6 +197,58 @@ func (manager *ReplicaManager) PingClient(ctx context.Context, in *auctionServic
 		Host:    int32(manager.Port),
 		Lamport: int32(manager.LamportTimestamp),
 	}, nil
+}
+
+func (manager *ReplicaManager) Bid(ctx context.Context, in *auctionService.BidMessage) (*auctionService.Ack, error) {
+
+	fmt.Printf("|- Successfully received bid request from: %v, with amount: %v \n", in.Host, in.Amount)
+
+	if in.Amount <= int32(manager.maxBid) {
+		// TODO: Lamport
+		return &auctionService.Ack{
+			Ack:     true,
+			Message: "Bid is lower or equal to current max bid",
+			Lamport: int32(manager.LamportTimestamp),
+		}, nil
+	}
+
+	// Update auction fields
+	manager.maxBid = int(in.Amount)
+	manager.latestBidPort = int(in.Host)
+
+	if manager.isPrimary() {
+		
+		// Notify the other replica managers a bid was made
+		for port, replicaManager := range manager.ReplicaManagers {
+			reponse, err := replicaManager.Bid(manager.ctx, in)
+
+			if err != nil {
+				fmt.Printf("Error notifying replica manager: %v with new bid, err: %v", port, err)
+			}
+
+			fmt.Printf("|- Successfully notifed RM of bid, returned message: %v \n", reponse.Message)
+		}
+
+		// TOOD: Lamport
+		return &auctionService.Ack{
+			Ack:     true,
+			Message: "Thank you user, a bid has successfully been placed",
+			Lamport: int32(manager.LamportTimestamp),
+		}, nil
+	} else {
+		// TODO: Lamport
+		return &auctionService.Ack{
+			Ack:     true,
+			Message: fmt.Sprintf("Thank you primary manager, fields are updated, for port: %v, with amount: %v", manager.Port, manager.maxBid),
+			Lamport: int32(manager.LamportTimestamp),
+		}, nil
+	}
+
+}
+
+func (manager *ReplicaManager) GetResult(ctx context.Context, in *auctionService.Ping) (*auctionService.Ack, error) {
+
+	return &auctionService.Ack{}, nil
 }
 
 func (manager *ReplicaManager) Vote(ctx context.Context, in *auctionService.VoteReq) (*auctionService.VoteRes, error) {

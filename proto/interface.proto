@@ -30,9 +30,15 @@ The clients interact with the primary manager and send through that all auction 
 */
 
 service AuctionService {
-  rpc PingClient (Ping) returns (Ping) {}
-  rpc Vote (VoteReq) returns (VoteRes) {}
+  // Auction
   rpc Bid (BidMessage) returns (Ack) {}
+  rpc GetResult(Ping) returns (Ack) {}
+
+  // Passive replication
+  rpc PingClient (Ping) returns (Ping) {}
+
+  // Election
+  rpc Vote (VoteReq) returns (VoteRes) {}
   rpc AskResult (Ping) returns (Ack) {}
   rpc AskForLeadership (Ping) returns (ElectorAnswer) {}
   rpc GiveLeadership(Ping) returns (Ping) {}

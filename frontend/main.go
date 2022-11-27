@@ -2,12 +2,14 @@ package main
 
 import (
 	auctionService "auction-system/proto"
+	"bufio"
 	"context"
 	"fmt"
 	"log"
 	"net"
 	"os"
 	"strconv"
+	"strings"
 
 	"google.golang.org/grpc"
 )
@@ -75,6 +77,46 @@ func main() {
 
 	fmt.Printf("|- Successfully connected to Primary Manager:%v \n", primaryManagerPort)
 
-	for {
+	scanner := bufio.NewScanner(os.Stdin)
+	for scanner.Scan() {
+		input := strings.Split(scanner.Text(), " ")
+
+		if input[0] == "bid" {
+			bidAmount, err := strconv.ParseInt(input[1], 10, 32)
+
+			if err != nil {
+				fmt.Println("Error with input, make sure correct type is used")
+				os.Exit(1)
+			}
+
+			manager.BidViaManager(int(bidAmount))
+		} else if input[0] == "result" {
+			manager.GetResultFromManager()
+		}
 	}
+
+	for {
+
+	}
+}
+
+func (frontend *Frontend) BidViaManager(amount int) {
+	// TODO: Lamport
+	ack, err := frontend.PrimaryManager.Bid(frontend.ctx, &auctionService.BidMessage{
+		Amount:  int32(amount),
+		Host:    int32(frontend.Port),
+		Lamport: int32(frontend.LamportTimestamp),
+	})
+
+	if err != nil {
+		fmt.Printf("Fatal error on client: %v: %v", frontend.Port, err)
+		return
+	}
+
+	fmt.Printf("|- Successfully send bid, message from primary manager: %v \n", ack.Message)
+
+	// TODO: Update lamport
+}
+
+func (frotned *Frontend) GetResultFromManager() {
 }

@@ -44,11 +44,17 @@ type ReplicaManager struct {
 func main() {
 
 	// Retrieve network ports from terminal args
-	serverPorts := []int{7101, 7106, 7103}
+	var serverPorts [3]int
 	// clientPorts := []int{6100, 6101, 6102}
 
-	arg, _ := strconv.ParseInt(os.Args[1], 10, 32)
-	ownPort := serverPorts[arg]
+	args1, _ := strconv.ParseInt(os.Args[1], 10, 32) // The primary port
+	args2, _ := strconv.ParseInt(os.Args[2], 10, 32) // port1 (own port)
+	args3, _ := strconv.ParseInt(os.Args[3], 10, 32) // port2 (other port)
+	args4, _ := strconv.ParseInt(os.Args[4], 10, 32) // port3 (other port)
+	serverPorts[0] = int(args2)
+	serverPorts[1] = int(args3)
+	serverPorts[2] = int(args4)
+	ownPort := serverPorts[0]
 
 	// Don't touch
 	ctx, cancel := context.WithCancel(context.Background())
@@ -62,12 +68,12 @@ func main() {
 		LamportTimestamp: 0,
 		Clients:          make(map[int]auctionService.AuctionServiceClient),
 		ReplicaManagers:  make(map[int]auctionService.AuctionServiceClient),
-		PrimaryManager:   serverPorts[0],
+		PrimaryManager:   int(args1),
 		ctx:              ctx,
 	}
 
 	// Make first port Primary Manager
-	if arg == 0 {
+	if args1 == int64(ownPort) {
 		manager.State = Primary
 	}
 

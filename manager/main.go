@@ -188,7 +188,7 @@ func (manager *ReplicaManager) ListenForHeartBeat() {
 
 		if err != nil {
 			fmt.Printf("|- Error in pinging PrimaryManager: %v \n", manager.PrimaryManager)
-			// TODO: Start Election due to error, likely a crash
+			manager.StartElection()
 			break
 		} else {
 			fmt.Printf("|- RM: %v successfully pinged and recived response from: %v \n", manager.Port, response.Host)
@@ -268,36 +268,88 @@ func (manager *ReplicaManager) GetResult(ctx context.Context, in *auctionService
 	}, nil
 }
 
-func (manager *ReplicaManager) Vote(ctx context.Context, in *auctionService.VoteReq) (*auctionService.VoteRes, error) {
-	voteRes := &auctionService.VoteRes{
-		Answer: false,
+func (manager *ReplicaManager) AskForLeadership(ctx context.Context, in *auctionService.VoteReq) (*auctionService.VoteReply, error) {
+	queue := in.Queue[1:]
+
+	ownLamport := manager.LamportTimestamp
+	ownPort := manager.Port
+
+	voteReply := &auctionService.VoteReply{}
+	voteReq := in
+
+	if ownLamport > int(in.BestHostLamport) {
+		voteReq.BestHostLamport = int32(ownLamport)
+		voteReq.BestHost = int32(ownPort)
 	}
 
-	if manager.LamportTimestamp < int(in.Lamport) {
-		voteRes.Answer = true
-		return voteRes, nil
-	}
-
-	if manager.LamportTimestamp > int(in.Lamport) {
-		return voteRes, nil
-	}
-
-	if manager.LamportTimestamp == int(in.Lamport) {
-		if manager.Port < int(in.Host) {
-			voteRes.Answer = true
-			return voteRes, nil
+	if ownLamport == int(in.BestHostLamport) {
+		if ownPort < int(in.BestHost) {
+			voteReq.BestHostLamport = int32(ownLamport)
+			voteReq.BestHost = int32(ownPort)
 		}
 	}
-	return voteRes, nil
+
+	if len(queue) == 0 {
+		if voteReq.BestHost != int32(manager.PrimaryManager) {
+			// Only Anounce new leader (VoteReq data) if not same as current.
+			// In case of multiple elections started almost simuntaniously
+			manager.AnnounceNewLeader(voteReq)
+		}
+	} else {
+		manager.ReplicaManagers[int(queue[0])].AskForLeadership(manager.ctx, voteReq)
+	}
+
+	return voteReply, nil
+}
+
+func (manager *ReplicaManager) SetNewLeader(ctx context.Context, newLeader *auctionService.VoteReq) (*auctionService.VoteReply, error) {
+	if int(newLeader.BestHost) == manager.Port {
+		manager.setState(Primary)
+	}
+	delete(manager.ReplicaManagers, int(newLeader.BestHost)) // Remove leader from backup replicas
+	manager.PrimaryManager = manager.Port
+
+	return &auctionService.VoteReply{}, nil
+}
+
+func (manager *ReplicaManager) AnnounceNewLeader(newLeader *auctionService.VoteReq) {
+	manager.SetNewLeader(manager.ctx, newLeader) // Set new leader on self aswell.
+	for _, _manager := range manager.ReplicaManagers {
+		_manager.SetNewLeader(manager.ctx, newLeader)
+	}
 }
 
 func (manager *ReplicaManager) StartElection() {
-	// for port, _manager := range manager.ReplicaManagers {
-	// 	res, _ := _manager.Vote(manager.ctx, &auctionService.VoteReq{
-	// 		Host:    int32(manager.Port),
-	// 		Lamport: int32(manager.LamportTimestamp),
-	// 	})
-	// }
+	var queue []int32 // Skal være array af keys (ports/hosts)
+
+	for port := range manager.ReplicaManagers {
+		if port == manager.Port {
+			continue
+		}
+		queue = append(queue, int32(port))
+	}
+
+	// Set leader to self, and no need to announce as there is no one else
+	if len(queue) == 0 {
+		manager.SetNewLeader(manager.ctx, &auctionService.VoteReq{
+			BestHost: int32(manager.Port),
+		})
+		return
+	}
+
+	for i := 0; i < len(queue); i++ {
+		//queue = queue[i:]
+		neighbourPort := queue[i]
+		_, err := manager.ReplicaManagers[int(neighbourPort)].AskForLeadership(manager.ctx, &auctionService.VoteReq{
+			BestHost:        int32(manager.Port),
+			BestHostLamport: int32(manager.LamportTimestamp),
+			Queue:           queue,
+		})
+
+		if err == nil {
+			break
+		}
+	}
 }
 
 func (manager *ReplicaManager) isPrimary() bool {

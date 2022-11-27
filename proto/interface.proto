@@ -6,29 +6,6 @@ option go_package = "grcp/proto";
 
 package proto;
 
-/*
-Flow
----------------------------
-Managers
---------
-The primary manager sends out "heartbeats"/pings the backups every x milliseconds (goroutine and for loop)
-
-When the primary manager dies an election should be called
-The backups knows when the primary is dead because of a "heartbeat"/ping was net received within x milliseconds
-
-For election we use "Ricart & Agrawala"
-To avoid duplicate elections the backup election calls are sorted by lamport and id
-When a new primary manager has beeen made, then a call to all the clients regarding the new primary manager is made
-
-The primary manager updates the backup managers regarding new updates to the auction
-
-The primary manager handles all auction communication with the clients
-
-Clients
--------
-The clients interact with the primary manager and send through that all auction request (`bid` and `result`)
-*/
-
 service AuctionService {
   // Auction
   rpc Bid (BidMessage) returns (Ack) {}
@@ -38,19 +15,18 @@ service AuctionService {
   rpc PingClient (Ping) returns (Ping) {}
 
   // Election
-  rpc Vote (VoteReq) returns (VoteRes) {}
-  rpc AskResult (Ping) returns (Ack) {}
-  rpc AskForLeadership (Ping) returns (ElectorAnswer) {}
-  rpc GiveLeadership(Ping) returns (Ping) {}
+  rpc AskForLeadership (VoteReq) returns (VoteReply) {}
+  rpc SetNewLeader(VoteReq) returns (VoteReply) {}
 }
 
 message VoteReq {
-  int32 host = 1;
-  int32 lamport = 2;
+  int32 bestHost = 1;
+  int32 bestHostLamport = 2;
+  repeated int32 queue = 3;
 }
 
-message VoteRes {
-  bool answer = 1;
+message VoteReply {
+  bool ack = 1;
 }
 
 message Ping {

@@ -95,9 +95,6 @@ func main() {
 		}
 	}
 
-	for {
-
-	}
 }
 
 func (frontend *Frontend) BidViaManager(amount int) {

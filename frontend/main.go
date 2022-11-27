@@ -130,5 +130,5 @@ func (frontend *Frontend) GetResultFromManager() {
 		return
 	}
 
-	fmt.Printf("|- Successfully asked for result, received message from primary manager: %v", ack.Message)
+	fmt.Printf("|- Successfully asked for result, received message from primary manager: %v \n", ack.Message)
 }

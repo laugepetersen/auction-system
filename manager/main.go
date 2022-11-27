@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log"
 	"math"
-	"math/rand"
 	"net"
 	"os"
 	"strconv"
@@ -175,11 +174,11 @@ func (manager *ReplicaManager) ListenForHeartBeat() {
 		time.Sleep(time.Millisecond * 2000)
 
 		manager.PingCount += 1
-		
+
 		if manager.isPrimary() {
 			continue
 		}
-		
+
 		// TODO: Lamport
 		pingData := &auctionService.Ping{
 			Host:    int32(manager.Port),
@@ -255,13 +254,11 @@ func (manager *ReplicaManager) Bid(ctx context.Context, in *auctionService.BidMe
 
 func (manager *ReplicaManager) GetResult(ctx context.Context, in *auctionService.Ping) (*auctionService.Ack, error) {
 	// TODO: Lamport
-	pingPossibilities := []int{50, 100, 69}
-	
 	var message string
-	if manager.PingCount >= pingPossibilities[rand.Intn(len(pingPossibilities))] {
+	if manager.PingCount >= 30 {
 		message = fmt.Sprintf("The auction is over max bid was: %v, by port winner: %v, congratulations", manager.MaxBid, manager.LatestBidPort)
 	} else {
-		message = fmt.Sprintf("The highest bid is: %v, by port: %v", manager.MaxBid, manager.LatestBidPort)
+		message = fmt.Sprintf("The highest bid is: %v, by port: %v, time: %v/%v sec", manager.MaxBid, manager.LatestBidPort, manager.PingCount/2, 30*2)
 	}
 
 	return &auctionService.Ack{

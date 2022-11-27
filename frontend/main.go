@@ -12,20 +12,20 @@ import (
 	"google.golang.org/grpc"
 )
 
-
 type Frontend struct {
 	auctionService.UnimplementedAuctionServiceServer
 	Port             int
 	LamportTimestamp int
-	PrimaryManager	 auctionService.AuctionServiceClient
+	PrimaryManager   auctionService.AuctionServiceClient
 	ctx              context.Context
 }
 
 func main() {
-	clientPorts := []int{6100, 6101, 6102}
+	args1, _ := strconv.ParseInt(os.Args[1], 10, 32) // primary manager port
+	args2, _ := strconv.ParseInt(os.Args[2], 10, 32) // client port
 
-	arg, _ := strconv.ParseInt(os.Args[1], 10, 32)
-	ownPort := clientPorts[arg]
+	primaryManagerPort := int(args1)
+	ownPort := int(args2)
 
 	// Don't touch
 	ctx, cancel := context.WithCancel(context.Background())
@@ -51,31 +51,29 @@ func main() {
 	grpcServer := grpc.NewServer()
 	auctionService.RegisterAuctionServiceServer(grpcServer, manager)
 
-	//error serve 
+	// Error on serve
 	go func() {
 		if err := grpcServer.Serve(list); err != nil {
 			log.Fatalf("Failed to serve %v", err)
 		}
 	}()
 
-	// Discover Primary Manager
-	PrimaryManagerPort := 5100
-
+	// Dial Primary Manager
 	fmt.Printf("Dialing Primary Manager: \n")
 
 	var conn *grpc.ClientConn
-	conn, dialErr := grpc.Dial(fmt.Sprintf(":%v", PrimaryManagerPort), grpc.WithInsecure(), grpc.WithBlock())
+	conn, dialErr := grpc.Dial(fmt.Sprintf(":%v", primaryManagerPort), grpc.WithInsecure(), grpc.WithBlock())
 	defer conn.Close()
 
 	if dialErr != nil {
-		log.Fatalf("Failed connecting to %v: %s", PrimaryManagerPort, err)
+		log.Fatalf("Failed dialing primary manager %v: %s", primaryManagerPort, err)
 	}
 
 	PrimaryManager := auctionService.NewAuctionServiceClient(conn)
 	manager.PrimaryManager = PrimaryManager
 	manager.LamportTimestamp += 1
 
-	fmt.Printf("|- Successfully connected to Primary Manager:%v \n", PrimaryManagerPort)
+	fmt.Printf("|- Successfully connected to Primary Manager:%v \n", primaryManagerPort)
 
 	for {
 	}

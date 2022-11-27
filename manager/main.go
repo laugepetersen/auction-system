@@ -45,7 +45,7 @@ func main() {
 
 	// Retrieve network ports from terminal args
 	var serverPorts [3]int
-	// clientPorts := []int{6100, 6101, 6102}
+	var clientPorts [3]int
 
 	args1, _ := strconv.ParseInt(os.Args[1], 10, 32) // The primary port
 	args2, _ := strconv.ParseInt(os.Args[2], 10, 32) // port1 (own port)
@@ -55,6 +55,13 @@ func main() {
 	serverPorts[1] = int(args3)
 	serverPorts[2] = int(args4)
 	ownPort := serverPorts[0]
+	
+	args5, _ := strconv.ParseInt(os.Args[5], 10, 32) // client1
+	args6, _ := strconv.ParseInt(os.Args[6], 10, 32) // client2
+	args7, _ := strconv.ParseInt(os.Args[7], 10, 32) // client3
+	clientPorts[0] = int(args5)
+	clientPorts[1] = int(args6)
+	clientPorts[2] = int(args7)
 
 	// Don't touch
 	ctx, cancel := context.WithCancel(context.Background())
@@ -121,7 +128,27 @@ func main() {
 		fmt.Printf("|- Successfully connected to Manager:%v \n", serverPort)
 	}
 
-	// TODO: Dial clients
+	// Dial clients
+	go func() {
+		for i := 0; i < len(clientPorts); i++ {
+			clientPort := clientPorts[i]
+			
+			// Dial clients with the ports
+			var conn *grpc.ClientConn
+			conn, err := grpc.Dial(fmt.Sprintf(":%v", clientPort), grpc.WithInsecure(), grpc.WithBlock())
+			defer conn.Close()
+			
+			if err != nil {
+				log.Fatalf("Failed dialing client clientport: %v, err: %s", clientPort, err)
+			}
+			
+			client := auctionService.NewAuctionServiceClient(conn)
+			manager.Clients[clientPort] = client
+			manager.LamportTimestamp += 1
+			
+			fmt.Printf("|- Successfully connected to Client:%v \n", clientPort)
+		}
+	}()
 
 	go manager.ListenForHeartBeat()
 

@@ -4,7 +4,13 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "build": "protoc --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative proto/interface.proto"
+    "build": "protoc --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative proto/interface.proto",
+    "m1": "go run manager/main.go 6000 6000 6001 6002 4000 4001 4002",
+    "m2": "go run manager/main.go 6000 6001 6002 6000 4000 4001 4002",
+    "m3": "go run manager/main.go 6000 6002 6000 6001 4000 4001 4002",
+    "c1": "go run frontend/main.go 6000 4000",
+    "c2": "go run frontend/main.go 6000 4001",
+    "c3": "go run frontend/main.go 6000 4002"
   },
   "author": "",
   "license": "ISC"

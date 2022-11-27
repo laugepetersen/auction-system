@@ -235,7 +235,7 @@ func (manager *ReplicaManager) Bid(ctx context.Context, in *auctionService.BidMe
 			fmt.Printf("|- Successfully notifed RM of bid, returned message: %v \n", reponse.Message)
 		}
 
-		// TOOD: Lamport
+		// TODO: Lamport
 		return &auctionService.Ack{
 			Ack:     true,
 			Message: "Thank you user, a bid has successfully been placed",
@@ -258,7 +258,7 @@ func (manager *ReplicaManager) GetResult(ctx context.Context, in *auctionService
 	if manager.PingCount >= 30 {
 		message = fmt.Sprintf("The auction is over max bid was: %v, by port winner: %v, congratulations", manager.MaxBid, manager.LatestBidPort)
 	} else {
-		message = fmt.Sprintf("The highest bid is: %v, by port: %v, time: %v/%v sec", manager.MaxBid, manager.LatestBidPort, manager.PingCount/2, 30*2)
+		message = fmt.Sprintf("The highest bid is: %v, by port: %v, time: %v/%v sec", manager.MaxBid, manager.LatestBidPort, manager.PingCount*2, 60)
 	}
 
 	return &auctionService.Ack{

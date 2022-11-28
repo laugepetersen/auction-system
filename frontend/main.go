@@ -115,6 +115,11 @@ func (frontend *Frontend) BidViaManager(amount int) {
 	// TODO: Update lamport
 }
 
+func (frontend *Frontend) PingClient(ctx context.Context, in *auctionService.Ping) (*auctionService.Ping, error) {
+	fmt.Println("** AUCTION HAS ENDED! **");
+	return &auctionService.Ping{}, nil
+}
+
 func (frontend *Frontend) GetResultFromManager() {
 	// TODO: Lamport
 	ack, err := frontend.PrimaryManager.GetResult(frontend.ctx, &auctionService.Ping{

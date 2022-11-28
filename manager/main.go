@@ -207,6 +207,14 @@ func (manager *ReplicaManager) PingClient(ctx context.Context, in *auctionServic
 
 func (manager *ReplicaManager) Bid(ctx context.Context, in *auctionService.BidMessage) (*auctionService.Ack, error) {
 
+	if manager.PingCount >= 15 {
+		return &auctionService.Ack{
+			Ack:     true,
+			Message: "Auction is over. Close and start all managers again, to start a new auction.",
+			Lamport: int32(manager.LamportTimestamp),
+		}, nil
+	}
+
 	fmt.Printf("|- Successfully received bid request from: %v, with amount: %v \n", in.Host, in.Amount)
 
 	if in.Amount <= int32(manager.MaxBid) {
@@ -255,7 +263,7 @@ func (manager *ReplicaManager) Bid(ctx context.Context, in *auctionService.BidMe
 func (manager *ReplicaManager) GetResult(ctx context.Context, in *auctionService.Ping) (*auctionService.Ack, error) {
 	// TODO: Lamport
 	var message string
-	if manager.PingCount >= 30 {
+	if manager.PingCount >= 15 {
 		message = fmt.Sprintf("The auction is over max bid was: %v, by port winner: %v, congratulations", manager.MaxBid, manager.LatestBidPort)
 	} else {
 		message = fmt.Sprintf("The highest bid is: %v, by port: %v, time: %v/%v sec", manager.MaxBid, manager.LatestBidPort, manager.PingCount*2, 60)
@@ -269,7 +277,18 @@ func (manager *ReplicaManager) GetResult(ctx context.Context, in *auctionService
 }
 
 func (manager *ReplicaManager) AskForLeadership(ctx context.Context, in *auctionService.VoteReq) (*auctionService.VoteReply, error) {
-	queue := in.Queue[1:]
+	fmt.Printf("|- Being asked for leadership by Manager:%v \n", in.BestHost)
+
+	var queue []int
+
+	if len(in.Queue) > 1 {
+		for port := range in.Queue {
+			if port == manager.Port {
+				continue
+			}
+			queue = append(queue, port)
+		}
+	}
 
 	ownLamport := manager.LamportTimestamp
 	ownPort := manager.Port
@@ -290,65 +309,74 @@ func (manager *ReplicaManager) AskForLeadership(ctx context.Context, in *auction
 	}
 
 	if len(queue) == 0 {
-		if voteReq.BestHost != int32(manager.PrimaryManager) {
-			// Only Anounce new leader (VoteReq data) if not same as current.
-			// In case of multiple elections started almost simuntaniously
-			manager.AnnounceNewLeader(voteReq)
-		}
+		fmt.Println("|- Queue is empty, announcing new leader! ")
+		manager.AnnounceNewLeader(voteReq)
 	} else {
-		manager.ReplicaManagers[int(queue[0])].AskForLeadership(manager.ctx, voteReq)
+		neighbour := queue[0]
+		manager.ReplicaManagers[neighbour].AskForLeadership(manager.ctx, voteReq)
 	}
 
 	return voteReply, nil
 }
 
 func (manager *ReplicaManager) SetNewLeader(ctx context.Context, newLeader *auctionService.VoteReq) (*auctionService.VoteReply, error) {
+	fmt.Printf("|- Setting new leader to Manager:%v \n", newLeader.BestHost)
 	if int(newLeader.BestHost) == manager.Port {
+		fmt.Printf("|- Changed state to Primary \n")
 		manager.setState(Primary)
 	}
-	delete(manager.ReplicaManagers, int(newLeader.BestHost)) // Remove leader from backup replicas
-	manager.PrimaryManager = manager.Port
+
+	fmt.Printf("|- Old managers %v \n", manager.ReplicaManagers)
+	fmt.Printf("|- Trying to delete %v from managers map \n", manager.PrimaryManager)
+	delete(manager.ReplicaManagers, manager.PrimaryManager) // Remove leader from backup replicas
+	manager.PrimaryManager = int(newLeader.BestHost)
+	fmt.Printf("|- New Leader is %v \n", manager.PrimaryManager)
+
+	fmt.Printf("|- New managers %v \n", manager.ReplicaManagers)
 
 	return &auctionService.VoteReply{}, nil
 }
 
 func (manager *ReplicaManager) AnnounceNewLeader(newLeader *auctionService.VoteReq) {
 	manager.SetNewLeader(manager.ctx, newLeader) // Set new leader on self aswell.
-	for _, _manager := range manager.ReplicaManagers {
-		_manager.SetNewLeader(manager.ctx, newLeader)
+
+	for port, _manager := range manager.ReplicaManagers {
+
+		fmt.Printf("|- Announcing new leader to Manager:%v \n", port)
+		_, err := _manager.SetNewLeader(manager.ctx, newLeader)
+
+		if err != nil {
+			fmt.Printf("|- Error in SetNewLeader, AnnounceNewLeader() to manager:%v \n", port)
+		}
 	}
+
 }
 
 func (manager *ReplicaManager) StartElection() {
+	fmt.Println()
+	fmt.Println("|- Starting election...")
+
 	var queue []int32 // Skal være array af keys (ports/hosts)
 
+	fmt.Printf("StartElection, replicamanagers: %v \n", manager.ReplicaManagers)
+
 	for port := range manager.ReplicaManagers {
-		if port == manager.Port {
+		if port == manager.Port || port == manager.PrimaryManager {
 			continue
 		}
 		queue = append(queue, int32(port))
 	}
 
-	// Set leader to self, and no need to announce as there is no one else
-	if len(queue) == 0 {
-		manager.SetNewLeader(manager.ctx, &auctionService.VoteReq{
-			BestHost: int32(manager.Port),
-		})
-		return
-	}
+	fmt.Printf("|- Asking Manager:%v for leadership \n", queue[0])
+	neighbourPort := queue[0]
+	_, err := manager.ReplicaManagers[int(neighbourPort)].AskForLeadership(manager.ctx, &auctionService.VoteReq{
+		BestHost:        int32(manager.Port),
+		BestHostLamport: int32(manager.LamportTimestamp),
+		Queue:           queue,
+	})
 
-	for i := 0; i < len(queue); i++ {
-		//queue = queue[i:]
-		neighbourPort := queue[i]
-		_, err := manager.ReplicaManagers[int(neighbourPort)].AskForLeadership(manager.ctx, &auctionService.VoteReq{
-			BestHost:        int32(manager.Port),
-			BestHostLamport: int32(manager.LamportTimestamp),
-			Queue:           queue,
-		})
-
-		if err == nil {
-			break
-		}
+	if err != nil {
+		fmt.Println("|- Error in AskForLeadership in StartElection() IF")
 	}
 }
 

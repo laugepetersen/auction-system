@@ -138,26 +138,24 @@ func main() {
 	}
 
 	// Dial clients
-	go func() {
-		for i := 0; i < len(clientPorts); i++ {
-			clientPort := clientPorts[i]
+	for i := 0; i < len(clientPorts); i++ {
+		clientPort := clientPorts[i]
 
-			// Dial clients with the ports
-			var conn *grpc.ClientConn
-			conn, err := grpc.Dial(fmt.Sprintf(":%v", clientPort), grpc.WithInsecure(), grpc.WithBlock())
-			defer conn.Close()
+		// Dial clients with the ports
+		var conn *grpc.ClientConn
+		conn, err := grpc.Dial(fmt.Sprintf(":%v", clientPort), grpc.WithInsecure(), grpc.WithBlock())
+		defer conn.Close()
 
-			if err != nil {
-				log.Fatalf("Failed dialing client clientport: %v, err: %s", clientPort, err)
-			}
-
-			client := auctionService.NewAuctionServiceClient(conn)
-			manager.Clients[clientPort] = client
-			manager.LamportTimestamp += 1
-
-			fmt.Printf("|- Successfully connected to Client:%v \n", clientPort)
+		if err != nil {
+			log.Fatalf("Failed dialing client clientport: %v, err: %s", clientPort, err)
 		}
-	}()
+
+		client := auctionService.NewAuctionServiceClient(conn)
+		manager.Clients[clientPort] = client
+		manager.LamportTimestamp += 1
+
+		fmt.Printf("|- Successfully connected to Client:%v \n", clientPort)
+	}
 
 	go manager.ListenForHeartBeat()
 
@@ -172,10 +170,20 @@ func main() {
 func (manager *ReplicaManager) ListenForHeartBeat() {
 	for {
 		time.Sleep(time.Millisecond * 2000)
-
 		manager.PingCount += 1
+		fmt.Printf("|- Heartbeat count(%v) \n", manager.PingCount)
 
 		if manager.isPrimary() {
+			if manager.PingCount == 15 {
+				for port, client := range manager.Clients {
+					_, err := client.Message(manager.ctx, &auctionService.Ack{
+						Message: "**** AUCTION IS OVER ****",
+					})
+					if err != nil {
+						fmt.Printf("|- Error in messaging client:%v: %v \n", port, err)
+					}
+				}
+			}
 			continue
 		}
 
@@ -189,16 +197,15 @@ func (manager *ReplicaManager) ListenForHeartBeat() {
 		if err != nil {
 			fmt.Printf("|- Error in pinging PrimaryManager: %v \n", manager.PrimaryManager)
 			manager.StartElection()
-			break
 		} else {
-			fmt.Printf("|- RM: %v successfully pinged and recived response from: %v \n", manager.Port, response.Host)
+			fmt.Printf("|- Got heartbeat from PrimaryManager:%v \n", response.Host)
 		}
 	}
 }
 
 func (manager *ReplicaManager) PingClient(ctx context.Context, in *auctionService.Ping) (*auctionService.Ping, error) {
 	// TODO: Lamport
-	fmt.Printf("|- Primary manager succesfully pinged by: %v \n", in.Host)
+	fmt.Printf("|- Primary manager pinged by: %v \n", in.Host)
 	return &auctionService.Ping{
 		Host:    int32(manager.Port),
 		Lamport: int32(manager.LamportTimestamp),
@@ -320,19 +327,17 @@ func (manager *ReplicaManager) AskForLeadership(ctx context.Context, in *auction
 }
 
 func (manager *ReplicaManager) SetNewLeader(ctx context.Context, newLeader *auctionService.VoteReq) (*auctionService.VoteReply, error) {
+
 	fmt.Printf("|- Setting new leader to Manager:%v \n", newLeader.BestHost)
+
 	if int(newLeader.BestHost) == manager.Port {
 		fmt.Printf("|- Changed state to Primary \n")
 		manager.setState(Primary)
 	}
 
-	fmt.Printf("|- Old managers %v \n", manager.ReplicaManagers)
-	fmt.Printf("|- Trying to delete %v from managers map \n", manager.PrimaryManager)
+	fmt.Printf("|- Delete dead Primary:%v from managers \n", manager.PrimaryManager)
 	delete(manager.ReplicaManagers, manager.PrimaryManager) // Remove leader from backup replicas
 	manager.PrimaryManager = int(newLeader.BestHost)
-	fmt.Printf("|- New Leader is %v \n", manager.PrimaryManager)
-
-	fmt.Printf("|- New managers %v \n", manager.ReplicaManagers)
 
 	return &auctionService.VoteReply{}, nil
 }
@@ -340,13 +345,23 @@ func (manager *ReplicaManager) SetNewLeader(ctx context.Context, newLeader *auct
 func (manager *ReplicaManager) AnnounceNewLeader(newLeader *auctionService.VoteReq) {
 	manager.SetNewLeader(manager.ctx, newLeader) // Set new leader on self aswell.
 
+	// Announce to managers
 	for port, _manager := range manager.ReplicaManagers {
 
 		fmt.Printf("|- Announcing new leader to Manager:%v \n", port)
 		_, err := _manager.SetNewLeader(manager.ctx, newLeader)
 
 		if err != nil {
-			fmt.Printf("|- Error in SetNewLeader, AnnounceNewLeader() to manager:%v \n", port)
+			fmt.Printf("|- Error in AnnounceNewLeader() trying to SetNewLeader for manager:%v \n", port)
+		}
+	}
+
+	// Announce to clients
+	for port, _client := range manager.Clients {
+		fmt.Printf("|- Announcing new leading to Client:%v \n", port)
+		_, err := _client.SetNewLeader(manager.ctx, newLeader)
+		if err != nil {
+			fmt.Printf("|- Error in AnnounceNewLeader() trying to SetNewLeader for client:%v with error: %v \n", port, err)
 		}
 	}
 
@@ -358,13 +373,21 @@ func (manager *ReplicaManager) StartElection() {
 
 	var queue []int32 // Skal være array af keys (ports/hosts)
 
-	fmt.Printf("StartElection, replicamanagers: %v \n", manager.ReplicaManagers)
-
 	for port := range manager.ReplicaManagers {
 		if port == manager.Port || port == manager.PrimaryManager {
 			continue
 		}
 		queue = append(queue, int32(port))
+	}
+
+	if len(queue) == 0 {
+		// It's only me
+		manager.AnnounceNewLeader(&auctionService.VoteReq{
+			BestHost:        int32(manager.Port),
+			BestHostLamport: int32(manager.LamportTimestamp),
+			Queue:           queue,
+		})
+		return
 	}
 
 	fmt.Printf("|- Asking Manager:%v for leadership \n", queue[0])

@@ -68,7 +68,7 @@ func main() {
 	defer conn.Close()
 
 	if dialErr != nil {
-		log.Fatalf("Failed dialing primary manager %v: %s", primaryManagerPort, err)
+		log.Fatalf("Failed dialing primary manager %v: %s", primaryManagerPort, dialErr)
 	}
 
 	PrimaryManager := auctionService.NewAuctionServiceClient(conn)
@@ -115,9 +115,25 @@ func (frontend *Frontend) BidViaManager(amount int) {
 	// TODO: Update lamport
 }
 
-func (frontend *Frontend) PingClient(ctx context.Context, in *auctionService.Ping) (*auctionService.Ping, error) {
-	fmt.Println("** AUCTION HAS ENDED! **");
-	return &auctionService.Ping{}, nil
+func (frontend *Frontend) Message(ctx context.Context, in *auctionService.Ack) (*auctionService.Ack, error) {
+	fmt.Println(in.Message)
+	return &auctionService.Ack{}, nil
+}
+
+func (frontend *Frontend) SetNewLeader(ctx context.Context, newLeader *auctionService.VoteReq) (*auctionService.VoteReply, error) {
+	fmt.Printf("|- Trying to dial new primary manager:%v \n", newLeader.BestHost)
+	var conn *grpc.ClientConn
+	conn, dialErr := grpc.Dial(fmt.Sprintf(":%v", newLeader.BestHost), grpc.WithInsecure(), grpc.WithBlock())
+
+	if dialErr != nil {
+		log.Fatalf("Failed dialing primary manager %v: %s", newLeader.BestHost, dialErr)
+	}
+
+	frontend.PrimaryManager = auctionService.NewAuctionServiceClient(conn)
+
+	fmt.Printf("|- Successfully connected to [New] Primary Manager:%v \n", newLeader.BestHost)
+
+	return &auctionService.VoteReply{Ack: true}, nil
 }
 
 func (frontend *Frontend) GetResultFromManager() {

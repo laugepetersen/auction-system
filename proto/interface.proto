@@ -17,6 +17,9 @@ service AuctionService {
   // Election
   rpc AskForLeadership (VoteReq) returns (VoteReply) {}
   rpc SetNewLeader(VoteReq) returns (VoteReply) {}
+
+  // Message
+  rpc Message(Ack) returns(Ack) {}
 }
 
 message VoteReq {

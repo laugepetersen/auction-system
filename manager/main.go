@@ -174,7 +174,7 @@ func (manager *ReplicaManager) ListenForHeartBeat() {
 		fmt.Printf("|- Heartbeat count(%v) \n", manager.PingCount)
 
 		if manager.isPrimary() {
-			if manager.PingCount == 15 {
+			if manager.PingCount >= 30 && manager.PingCount <= 36 {
 				for port, client := range manager.Clients {
 					_, err := client.Message(manager.ctx, &auctionService.Ack{
 						Message: "**** AUCTION IS OVER ****",
@@ -214,7 +214,7 @@ func (manager *ReplicaManager) PingClient(ctx context.Context, in *auctionServic
 
 func (manager *ReplicaManager) Bid(ctx context.Context, in *auctionService.BidMessage) (*auctionService.Ack, error) {
 
-	if manager.PingCount >= 15 {
+	if manager.PingCount >= 30 {
 		return &auctionService.Ack{
 			Ack:     true,
 			Message: "Auction is over. Close and start all managers again, to start a new auction.",
@@ -270,7 +270,7 @@ func (manager *ReplicaManager) Bid(ctx context.Context, in *auctionService.BidMe
 func (manager *ReplicaManager) GetResult(ctx context.Context, in *auctionService.Ping) (*auctionService.Ack, error) {
 	// TODO: Lamport
 	var message string
-	if manager.PingCount >= 15 {
+	if manager.PingCount >= 30 {
 		message = fmt.Sprintf("The auction is over max bid was: %v, by port winner: %v, congratulations", manager.MaxBid, manager.LatestBidPort)
 	} else {
 		message = fmt.Sprintf("The highest bid is: %v, by port: %v, time: %v/%v sec", manager.MaxBid, manager.LatestBidPort, manager.PingCount*2, 60)
